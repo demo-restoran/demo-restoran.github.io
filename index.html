@@ -2,6 +2,9 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: mediastream:; connect-src https://script.google.com https://script.googleusercontent.com https://cdn.jsdelivr.net; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<script>if (window.top !== window.self) { document.documentElement.style.display = 'none'; try { window.top.location = window.self.location.href; } catch (e) {} }</script>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#07140f">
 <title>Отметка на работе</title>
@@ -195,9 +198,9 @@
   </div>
 </main>
 
-<script src="config.js?v=5"></script>
-<script src="face.js?v=5"></script>
-<script src="stats.js?v=5"></script>
+<script src="config.js?v=6"></script>
+<script src="face.js?v=6"></script>
+<script src="stats.js?v=6"></script>
 <script>
 const TZ = 'Asia/Samarkand';
 let offset = 0;            // разница между часами сервера и телефона
@@ -281,7 +284,9 @@ function celebrate(type, time) {
     document.title = 'Отметка — ' + info.restaurantName;
     const list = await api('employees');
     const sel = $('emp');
-    sel.innerHTML = '<option value="">— выберите себя —</option>' + list.map(e => `<option value="${e.id}">${e.name.replace(/</g,'&lt;')}</option>`).join('');
+    sel.innerHTML = '';
+    sel.append(new Option('— выберите себя —', ''));
+    list.forEach(e => sel.append(new Option(e.name, e.id)));
     const saved = store.get('employeeId'); if (saved && list.some(e => e.id === saved)) sel.value = saved;
     if (!list.length) show($('loginMsg'), 'Сотрудники ещё не добавлены. Управляющему: откройте <a href="admin.html">панель</a>.', 'info');
   } catch (e) { show($('loginMsg'), e.message, 'err'); }

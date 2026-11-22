@@ -2,6 +2,9 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: mediastream:; connect-src https://script.google.com https://script.googleusercontent.com https://cdn.jsdelivr.net; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<script>if (window.top !== window.self) { document.documentElement.style.display = 'none'; try { window.top.location = window.self.location.href; } catch (e) {} }</script>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Панель управляющего — табель</title>
 <style>
@@ -46,6 +49,8 @@
   .ph-back { position:fixed; inset:0; background:rgba(0,0,0,.8); display:flex; align-items:center; justify-content:center; z-index:900; cursor:pointer; }
   .ph-back img { max-width:92vw; max-height:85vh; border-radius:10px; }
   .ph-back p { color:#fff; position:absolute; bottom:20px; width:100%; text-align:center; }
+  .must { display:none; max-width:1100px; margin:12px auto 0; padding:12px 16px; border-radius:12px; background:#fde4df; color:#8a2a20; border:1px solid #f3b7ab; font-weight:600; }
+  .must.on { display:block; }
   .linkbtn { background:none; border:0; color:#1d5fa8; cursor:pointer; padding:0; font-size:14px; text-decoration:underline; }
 
   /* ---------- 3D-оформление ---------- */
@@ -101,6 +106,7 @@
 </div>
 
 <div id="app" class="hidden">
+  <div class="must" id="mustChange">⚠️ Сейчас стоит стандартный пароль «admin123» — его знает кто угодно. Придумайте новый пароль ниже и нажмите «Сохранить».</div>
   <nav>
     <button data-tab="tabel" class="active">Табель</button>
     <button data-tab="log">Все отметки</button>
@@ -157,21 +163,22 @@
       </div>
       <div class="row"><label style="font-size:14px;color:var(--ink)"><input type="checkbox" id="sStrict"> Не принимать отметки вне радиуса (иначе отметка сохранится с пометкой «вне зоны»)</label></div>
       <h2>Пароль управляющего</h2>
-      <div class="row"><div><label>Новый пароль (мин. 6 символов)</label><input type="password" id="sPwd"></div></div>
+      <div class="row"><div><label>Новый пароль (мин. 8 символов, буквы и цифры)</label><input type="password" id="sPwd"></div></div>
       <button class="btn" id="saveSettings">Сохранить</button>
       <div class="msg" id="setMsg"></div>
     </div>
   </main>
 </div>
 
-<script src="config.js?v=5"></script>
-<script src="face.js?v=5"></script>
-<script src="stats.js?v=5"></script>
+<script src="config.js?v=6"></script>
+<script src="face.js?v=6"></script>
+<script src="stats.js?v=6"></script>
 <script>
 const TZ = 'Asia/Samarkand';
 const $ = id => document.getElementById(id);
-let PASS = '';
-try { PASS = sessionStorage.getItem('adminPass') || ''; } catch (e) {}
+let TOKEN = '';
+try { TOKEN = sessionStorage.getItem('adminToken') || ''; sessionStorage.removeItem('adminPass'); } catch (e) {}
+const saveToken = t => { TOKEN = t || ''; try { t ? sessionStorage.setItem('adminToken', t) : sessionStorage.removeItem('adminToken'); } catch (e) {} };
 let employees = [], records = [];
 
 const fTime = new Intl.DateTimeFormat('ru-RU', { timeZone: TZ, weekday:'short', day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false });
@@ -181,29 +188,40 @@ function todaySmk(shiftDays = 0) {
   const p = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year:'numeric', month:'2-digit', day:'2-digit' }).formatToParts(new Date(Date.now() + shiftDays * 864e5)).map(x => [x.type, x.value]));
   return `${p.year}-${p.month}-${p.day}`;
 }
-const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
+const esc = s => String(s ?? '').replace(/[&<>"'`]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;', '`':'&#96;' }[c]));
+const sid = x => /^[\w-]{1,100}$/.test(String(x)) ? String(x) : '';   // только безопасные идентификаторы в onclick
 const dmy = d => d.split('-').reverse().join('.');
 const hm = ms => { const m = Math.round(ms / 60000); return `${Math.floor(m / 60)} ч ${String(m % 60).padStart(2, '0')} мин`; };
 
 async function api(action, body) {
-  try { return await callApi(action, Object.assign({ password: PASS }, body || {})); }
-  catch (e) { if (e.code === 401) logout(); throw e; }
+  try { return await callApi(action, Object.assign({ token: TOKEN }, body || {})); }
+  catch (e) { if (e.code === 401) logout(true); throw e; }
+}
+function setMust(on) {
+  $('mustChange').classList.toggle('on', !!on);
+  if (on) document.querySelector('nav button[data-tab=settings]').click();
 }
 
 // ---- вход ----
-async function tryLogin() {
-  try {
-    await api('admin_login');
-    try { sessionStorage.setItem('adminPass', PASS); } catch (e) {}
-    $('loginCard').classList.add('hidden'); $('app').classList.remove('hidden'); $('logoutBtn').classList.remove('hidden');
-    init();
-  } catch (e) { $('loginMsg').className = 'msg err'; $('loginMsg').textContent = e.message || 'Неверный пароль'; }
+function showApp(mustChange) {
+  $('loginCard').classList.add('hidden'); $('app').classList.remove('hidden'); $('logoutBtn').classList.remove('hidden');
+  init().then(() => setMust(mustChange));
 }
-$('loginBtn').onclick = () => { PASS = $('pwd').value; tryLogin(); };
+$('loginBtn').onclick = async () => {
+  const b = $('loginBtn'); b.disabled = true;
+  try {
+    const r = await callApi('admin_login', { password: $('pwd').value });
+    $('pwd').value = ''; $('loginMsg').className = 'msg'; saveToken(r.token); showApp(r.mustChange);
+  } catch (e) { $('loginMsg').className = 'msg err'; $('loginMsg').textContent = e.message || 'Неверный пароль'; }
+  b.disabled = false;
+};
 $('pwd').onkeydown = e => { if (e.key === 'Enter') $('loginBtn').click(); };
-function logout() { PASS = ''; try { sessionStorage.removeItem('adminPass'); } catch (e) {} $('app').classList.add('hidden'); $('loginCard').classList.remove('hidden'); $('logoutBtn').classList.add('hidden'); }
-$('logoutBtn').onclick = logout;
-if (PASS) tryLogin();
+function logout(expired) {
+  if (!expired && TOKEN) callApi('admin_logout', { token: TOKEN }).catch(() => {});
+  saveToken(''); $('app').classList.add('hidden'); $('loginCard').classList.remove('hidden'); $('logoutBtn').classList.add('hidden');
+}
+$('logoutBtn').onclick = () => logout(false);
+if (TOKEN) api('admin_status').then(r => showApp(r.mustChange)).catch(() => {});
 
 // ---- вкладки ----
 document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
@@ -224,7 +242,7 @@ async function loadRecords() {
 }
 $('reload').onclick = loadRecords;
 $('csv').onclick = () => {
-  const q = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const q = v => { let t = String(v ?? ''); if (typeof v !== 'number' && /^[=+\-@\t\r]/.test(t)) t = "'" + t; return `"${t.replace(/"/g, '""')}"`; };
   const rows = [['Дата (Самарканд)', 'Время (Самарканд)', 'Сотрудник', 'Отметка', 'Широта', 'Долгота', 'Точность, м', 'Расстояние до ресторана, м', 'В зоне', 'Карта'],
     ...[...records].sort((a, b) => a.ts - b.ts).map(r => [r.date, r.time, r.name, TYPE_RU[r.type], r.lat, r.lon, r.accuracy, r.distance,
       r.inside == null ? '' : (r.inside ? 'да' : 'нет'), r.lat != null ? `https://maps.google.com/?q=${r.lat},${r.lon}` : ''])];
@@ -246,9 +264,11 @@ function geoCell(r) {
 function faceCell(r) {
   if (!r || !r.photoId) return '';
   const tag = r.face === 'совпало' ? '<span class="tag okz">лицо ✓</span>' : '<span class="tag warn">без образца</span>';
-  return `${tag} <button class="linkbtn" onclick="showPhoto('${r.photoId}', '${esc(r.name)} — ${TYPE_RU[r.type].toLowerCase()} ${dmy(r.date)} ${r.time}')">селфи</button>`;
+  return `${tag} <button class="linkbtn" onclick="showPhoto('${sid(r.id)}')">селфи</button>`;
 }
-window.showPhoto = async (id, caption) => {
+window.showPhoto = async recId => {
+  const rec = records.find(x => x.id === recId); if (!rec) return;
+  const id = rec.photoId, caption = `${rec.name} — ${TYPE_RU[rec.type].toLowerCase()} ${dmy(rec.date)} ${rec.time}`;
   const back = document.createElement('div'); back.className = 'ph-back';
   back.innerHTML = '<p>Загрузка фото…</p>'; back.onclick = () => back.remove();
   document.body.appendChild(back);
@@ -279,7 +299,7 @@ function renderTabel() {
     <div class="kpi k3"><b>${fmt(all.netMs)}</b><span>чистое время за период</span></div>
     <div class="kpi k4"><b>${fmt(all.breakMs)}</b><span>перерывы за период (${all.breaks})</span></div>`;
   $('totals').innerHTML = '<tr><th>Сотрудник</th><th>Смен</th><th>Чистое время</th><th>Перерывы</th><th>Незакрытые</th><th>Вне зоны</th></tr>' +
-    (list.length ? list.map(t => `<tr><td><button class="namebtn" onclick="openEmpCard('${t.id}')">${esc(t.name)}</button></td><td class="num">${t.n}</td>
+    (list.length ? list.map(t => `<tr><td><button class="namebtn" onclick=\"openEmpCard('${sid(t.id)}')">${esc(t.name)}</button></td><td class="num">${t.n}</td>
       <td class="num"><b>${fmt(t.net)}</b></td><td class="num">${fmt(t.brk)}</td><td>${t.open || ''}</td>
       <td>${t.outside ? `<span class="tag warn">${t.outside}</span>` : ''}</td></tr>`).join('')
       : '<tr><td colspan="6" class="muted">Нет отметок за период</td></tr>');
@@ -290,7 +310,7 @@ function renderTabel() {
       const dur = x.current ? `<span class="tag ${x.onBreak ? 'brk' : 'in'}">${x.onBreak ? 'перерыв' : 'на смене'}</span> ${fmt(x.netMs)}`
         : x.complete ? `<b>${fmt(x.netMs)}</b>` : '<span class="tag warn">нет пары</span>';
       const br = x.breaks.length ? `${x.breaks.length} · ${fmt(x.breakMs)}<br><small class="muted">${x.breaks.map(b => b.start.time.slice(0, 5) + '–' + (b.end ? b.end.time.slice(0, 5) : '…')).join(', ')}</small>` : '—';
-      return `<tr><td>${dmy(r.date)}</td><td><button class="namebtn" onclick="openEmpCard('${x.employeeId}')">${esc(x.name)}</button></td>
+      return `<tr><td>${dmy(r.date)}</td><td><button class="namebtn" onclick=\"openEmpCard('${sid(x.employeeId)}')">${esc(x.name)}</button></td>
         <td class="num">${x.in ? x.in.time.slice(0, 5) : '—'}</td><td>${geoCell(x.in)}</td>
         <td class="num">${x.out ? (x.out.date !== r.date ? dmy(x.out.date) + ' ' : '') + x.out.time.slice(0, 5) : '—'}</td><td>${geoCell(x.out)}</td>
         <td class="num">${br}</td><td class="num">${dur}</td></tr>`;
@@ -315,7 +335,7 @@ function renderLog() {
       <td class="num">${r.accuracy != null ? '±' + r.accuracy + ' м' : ''}</td>
       <td>${r.lat == null ? '' : r.inside == null ? '<span class="muted">не задана</span>' : r.inside ? `<span class="tag okz">${r.distance} м</span>` : `<span class="tag warn">вне: ${r.distance} м</span>`}</td>
       <td>${faceCell(r) || '<span class="muted">—</span>'}</td>
-      <td><button class="btn ghost small" onclick="delRec('${r.id}')">Удалить</button></td></tr>`).join('');
+      <td><button class="btn ghost small" onclick=\"delRec('${sid(r.id)}')">Удалить</button></td></tr>`).join('');
 }
 window.delRec = async id => { if (!confirm('Удалить эту отметку?')) return; await api('admin_delete_record', { id }); loadRecords(); };
 
@@ -324,13 +344,13 @@ async function loadEmployees() {
   employees = await api('admin_employees');
   $('fEmp').innerHTML = '<option value="">Все</option>' + employees.map(e => `<option value="${e.id}">${esc(e.name)}</option>`).join('');
   $('emps').innerHTML = '<tr><th>Имя</th><th>Статус</th><th>Образец лица</th><th></th></tr>' + (employees.length ? employees.map(e => `<tr>
-    <td><button class="namebtn" onclick="openEmpCard('${e.id}')">${esc(e.name)}</button></td><td>${e.active ? 'работает' : '<span class="muted">отключён</span>'}</td>
+    <td><button class="namebtn" onclick=\"openEmpCard('${sid(e.id)}')">${esc(e.name)}</button></td><td>${e.active ? 'работает' : '<span class="muted">отключён</span>'}</td>
     <td>${e.hasFace ? '<span class="tag okz">есть</span>' : '<span class="tag warn">нет</span>'}</td>
-    <td style="text-align:right;white-space:nowrap"><button class="btn small" onclick="openEmpCard('${e.id}')">📊 Карточка</button>
-    <button class="btn small" onclick="faceEmp('${e.id}')">📷 Лицо</button>
-    <button class="btn ghost small" onclick="renameEmp('${e.id}')">Имя</button>
-    <button class="btn ghost small" onclick="pinEmp('${e.id}')">Сменить PIN</button>
-    <button class="btn ghost small" onclick="toggleEmp('${e.id}', ${!e.active})">${e.active ? 'Отключить' : 'Включить'}</button></td></tr>`).join('')
+    <td style="text-align:right;white-space:nowrap"><button class="btn small" onclick=\"openEmpCard('${sid(e.id)}')">📊 Карточка</button>
+    <button class="btn small" onclick=\"faceEmp('${sid(e.id)}')">📷 Лицо</button>
+    <button class="btn ghost small" onclick=\"renameEmp('${sid(e.id)}')">Имя</button>
+    <button class="btn ghost small" onclick=\"pinEmp('${sid(e.id)}')">Сменить PIN</button>
+    <button class="btn ghost small" onclick=\"toggleEmp('${sid(e.id)}', ${!e.active})">${e.active ? 'Отключить' : 'Включить'}</button></td></tr>`).join('')
     : '<tr><td colspan="4" class="muted">Пока никого нет</td></tr>');
 }
 function empMsg(t, ok) { $('empMsg').className = 'msg ' + (ok ? 'ok' : 'err'); $('empMsg').textContent = t; }
@@ -370,10 +390,12 @@ $('here').onclick = () => {
 };
 $('saveSettings').onclick = async () => {
   try {
-    await api('admin_save_settings', { restaurantName: $('sName').value, lat: $('sLat').value.trim(), lon: $('sLon').value.trim(),
+    const r = await api('admin_save_settings', { restaurantName: $('sName').value, lat: $('sLat').value.trim(), lon: $('sLon').value.trim(),
       radius: $('sRad').value, strict: $('sStrict').checked, newPassword: $('sPwd').value || undefined });
-    if ($('sPwd').value) { PASS = $('sPwd').value; try { sessionStorage.setItem('adminPass', PASS); } catch (e) {} $('sPwd').value = ''; }
-    setMsg('Сохранено', true); loadSettings();
+    const changed = !!$('sPwd').value;
+    $('sPwd').value = '';
+    if (changed) { saveToken(r.token); setMust(false); }
+    setMsg(changed ? 'Сохранено. Пароль изменён, на других устройствах нужно войти заново.' : 'Сохранено', true); loadSettings();
   } catch (e) { setMsg(e.message); }
 };
 </script>
