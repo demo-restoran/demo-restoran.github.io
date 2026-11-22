@@ -31,6 +31,9 @@
   .tag { display:inline-block; padding:2px 8px; border-radius:20px; font-size:12px; font-weight:600; }
   .tag.in { background:#e4f3ea; color:#145a37; } .tag.out { background:#f8e3df; color:#8a2a20; }
   .tag.warn { background:#fff1d6; color:#8a5a00; } .tag.okz { background:#e4f3ea; color:#145a37; }
+  .tag.brk, .tag.break_start, .tag.break_end { background:#fff4d1; color:#7a5600; }
+  .namebtn { background:none; border:0; padding:0; font:inherit; color:#1d5fa8; cursor:pointer; text-decoration:underline dotted; text-underline-offset:3px; }
+  .now span.brk { background:#fff4d1; color:#7a5600; }
   .muted { color:var(--muted); }
   .hidden { display:none; }
   .msg { margin-top:10px; font-size:14px; }
@@ -161,8 +164,9 @@
   </main>
 </div>
 
-<script src="config.js?v=4"></script>
-<script src="face.js?v=4"></script>
+<script src="config.js?v=5"></script>
+<script src="face.js?v=5"></script>
+<script src="stats.js?v=5"></script>
 <script>
 const TZ = 'Asia/Samarkand';
 const $ = id => document.getElementById(id);
@@ -222,38 +226,27 @@ $('reload').onclick = loadRecords;
 $('csv').onclick = () => {
   const q = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
   const rows = [['Дата (Самарканд)', 'Время (Самарканд)', 'Сотрудник', 'Отметка', 'Широта', 'Долгота', 'Точность, м', 'Расстояние до ресторана, м', 'В зоне', 'Карта'],
-    ...[...records].sort((a, b) => a.ts - b.ts).map(r => [r.date, r.time, r.name, r.type === 'in' ? 'Приход' : 'Уход', r.lat, r.lon, r.accuracy, r.distance,
-      r.inside == null ? '' : (r.inside ? 'да' : 'нет'), `https://maps.google.com/?q=${r.lat},${r.lon}`])];
+    ...[...records].sort((a, b) => a.ts - b.ts).map(r => [r.date, r.time, r.name, TYPE_RU[r.type], r.lat, r.lon, r.accuracy, r.distance,
+      r.inside == null ? '' : (r.inside ? 'да' : 'нет'), r.lat != null ? `https://maps.google.com/?q=${r.lat},${r.lon}` : ''])];
   const blob = new Blob(['\uFEFF' + rows.map(r => r.map(q).join(';')).join('\r\n')], { type: 'text/csv;charset=utf-8' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob); a.download = `tabel_${$('from').value}_${$('to').value}.csv`; a.click();
 };
 
-function buildShifts() {
-  const byEmp = {};
-  [...records].sort((a, b) => a.ts - b.ts).forEach(r => (byEmp[r.employeeId] ||= []).push(r));
-  const shifts = [];
-  for (const list of Object.values(byEmp)) {
-    let open = null;
-    for (const r of list) {
-      if (r.type === 'in') { if (open) shifts.push({ in: open, out: null }); open = r; }
-      else if (open) { shifts.push({ in: open, out: r }); open = null; }
-      else shifts.push({ in: null, out: r });
-    }
-    if (open) shifts.push({ in: open, out: null, current: true });
-  }
-  return shifts.sort((a, b) => (b.in || b.out).ts - (a.in || a.out).ts);
-}
+const TYPE_RU = { in: 'Приход', out: 'Уход', break_start: 'Начало перерыва', break_end: 'Конец перерыва' };
+const fmt = ms => TabelStats.fmt(ms);
+function buildShifts() { return TabelStats.build(records); }
 
 function geoCell(r) {
   if (!r) return '';
+  if (r.lat == null) return '';
   const zone = r.inside == null ? '' : r.inside ? ` <span class="tag okz">${r.distance} м</span>` : ` <span class="tag warn">вне зоны: ${r.distance} м</span>`;
   return `<a href="https://maps.google.com/?q=${r.lat},${r.lon}" target="_blank">карта</a>${zone} ${faceCell(r)}`;
 }
 function faceCell(r) {
   if (!r || !r.photoId) return '';
   const tag = r.face === 'совпало' ? '<span class="tag okz">лицо ✓</span>' : '<span class="tag warn">без образца</span>';
-  return `${tag} <button class="linkbtn" onclick="showPhoto('${r.photoId}', '${esc(r.name)} — ${r.type === 'in' ? 'приход' : 'уход'} ${dmy(r.date)} ${r.time}')">селфи</button>`;
+  return `${tag} <button class="linkbtn" onclick="showPhoto('${r.photoId}', '${esc(r.name)} — ${TYPE_RU[r.type].toLowerCase()} ${dmy(r.date)} ${r.time}')">селфи</button>`;
 }
 window.showPhoto = async (id, caption) => {
   const back = document.createElement('div'); back.className = 'ph-back';
@@ -268,43 +261,59 @@ window.showPhoto = async (id, caption) => {
 
 function renderTabel() {
   const shifts = buildShifts();
-  const on = shifts.filter(s => s.current);
-  $('nowOn').innerHTML = on.length ? on.map(s => `<span>${esc(s.in.name)} — с ${s.in.time.slice(0, 5)}</span>`).join('') : '<span class="muted" style="background:none">никого</span>';
+  const on = shifts.filter(x => x.current);
+  $('nowOn').innerHTML = on.length ? on.map(x => `<span class="${x.onBreak ? 'brk' : ''}">${x.onBreak ? '☕ ' : ''}${esc(x.in.name)} — с ${x.in.time.slice(0, 5)} · ${fmt(x.netMs)}</span>`).join('')
+    : '<span class="muted" style="background:none">никого</span>';
 
   const tot = {};
-  shifts.forEach(s => {
-    const name = (s.in || s.out).name; tot[name] ||= { ms: 0, n: 0, open: 0, outside: 0 };
-    if (s.in && s.out) { tot[name].ms += s.out.ts - s.in.ts; tot[name].n++; }
-    else tot[name].open++;
-    if ((s.in && s.in.inside === false) || (s.out && s.out.inside === false)) tot[name].outside++;
+  shifts.forEach(x => {
+    const k = x.employeeId; tot[k] = tot[k] || { name: x.name, id: k, net: 0, brk: 0, n: 0, open: 0, outside: 0 };
+    tot[k].net += x.netMs; tot[k].brk += x.breakMs;
+    if (x.complete || x.current) tot[k].n++; else tot[k].open++;
+    if ((x.in && x.in.inside === false) || (x.out && x.out.inside === false)) tot[k].outside++;
   });
-  const names = Object.keys(tot).sort();
-  const totalMs = Object.values(tot).reduce((a, t) => a + t.ms, 0);
-  const outside = records.filter(r => r.inside === false).length;
-  $('kpis').innerHTML = `<div class="kpi k1"><b>${on.length}</b><span>сейчас на смене</span></div>
-    <div class="kpi k2"><b>${hm(totalMs).replace(' мин', 'м').replace(' ч ', 'ч ')}</b><span>отработано за период</span></div>
-    <div class="kpi k3"><b>${records.length}</b><span>отметок за период</span></div>
-    <div class="kpi k4"><b>${outside}</b><span>отметок вне зоны</span></div>`;
-  $('totals').innerHTML = '<tr><th>Сотрудник</th><th>Смен</th><th>Отработано</th><th>Незакрытые</th><th>Отметки вне зоны</th></tr>' +
-    (names.length ? names.map(n => `<tr><td>${esc(n)}</td><td class="num">${tot[n].n}</td><td class="num"><b>${hm(tot[n].ms)}</b></td><td>${tot[n].open || ''}</td><td>${tot[n].outside ? `<span class="tag warn">${tot[n].outside}</span>` : ''}</td></tr>`).join('')
-      : '<tr><td colspan="5" class="muted">Нет отметок за период</td></tr>');
+  const list = Object.values(tot).sort((a, b) => a.name.localeCompare(b.name));
+  const all = TabelStats.sum(shifts);
+  $('kpis').innerHTML = `<div class="kpi k1"><b>${on.filter(x => !x.onBreak).length}</b><span>сейчас работают</span></div>
+    <div class="kpi k2"><b>${on.filter(x => x.onBreak).length}</b><span>на перерыве</span></div>
+    <div class="kpi k3"><b>${fmt(all.netMs)}</b><span>чистое время за период</span></div>
+    <div class="kpi k4"><b>${fmt(all.breakMs)}</b><span>перерывы за период (${all.breaks})</span></div>`;
+  $('totals').innerHTML = '<tr><th>Сотрудник</th><th>Смен</th><th>Чистое время</th><th>Перерывы</th><th>Незакрытые</th><th>Вне зоны</th></tr>' +
+    (list.length ? list.map(t => `<tr><td><button class="namebtn" onclick="openEmpCard('${t.id}')">${esc(t.name)}</button></td><td class="num">${t.n}</td>
+      <td class="num"><b>${fmt(t.net)}</b></td><td class="num">${fmt(t.brk)}</td><td>${t.open || ''}</td>
+      <td>${t.outside ? `<span class="tag warn">${t.outside}</span>` : ''}</td></tr>`).join('')
+      : '<tr><td colspan="6" class="muted">Нет отметок за период</td></tr>');
 
-  $('shifts').innerHTML = '<tr><th>Дата</th><th>Сотрудник</th><th>Приход</th><th>Где</th><th>Уход</th><th>Где</th><th>Длительность</th></tr>' +
-    shifts.map(s => {
-      const r = s.in || s.out;
-      const dur = s.in && s.out ? hm(s.out.ts - s.in.ts) : s.current ? '<span class="tag in">на смене</span>' : '<span class="tag warn">нет пары</span>';
-      return `<tr><td>${dmy(r.date)}</td><td>${esc(r.name)}</td><td class="num">${s.in ? s.in.time.slice(0, 5) : '—'}</td><td>${geoCell(s.in)}</td>
-        <td class="num">${s.out ? (s.out.date !== (s.in || s.out).date ? dmy(s.out.date) + ' ' : '') + s.out.time.slice(0, 5) : '—'}</td><td>${geoCell(s.out)}</td><td class="num">${dur}</td></tr>`;
+  $('shifts').innerHTML = '<tr><th>Дата</th><th>Сотрудник</th><th>Приход</th><th>Где</th><th>Уход</th><th>Где</th><th>Перерывы</th><th>Чистое время</th></tr>' +
+    shifts.map(x => {
+      const r = x.in || x.out;
+      const dur = x.current ? `<span class="tag ${x.onBreak ? 'brk' : 'in'}">${x.onBreak ? 'перерыв' : 'на смене'}</span> ${fmt(x.netMs)}`
+        : x.complete ? `<b>${fmt(x.netMs)}</b>` : '<span class="tag warn">нет пары</span>';
+      const br = x.breaks.length ? `${x.breaks.length} · ${fmt(x.breakMs)}<br><small class="muted">${x.breaks.map(b => b.start.time.slice(0, 5) + '–' + (b.end ? b.end.time.slice(0, 5) : '…')).join(', ')}</small>` : '—';
+      return `<tr><td>${dmy(r.date)}</td><td><button class="namebtn" onclick="openEmpCard('${x.employeeId}')">${esc(x.name)}</button></td>
+        <td class="num">${x.in ? x.in.time.slice(0, 5) : '—'}</td><td>${geoCell(x.in)}</td>
+        <td class="num">${x.out ? (x.out.date !== r.date ? dmy(x.out.date) + ' ' : '') + x.out.time.slice(0, 5) : '—'}</td><td>${geoCell(x.out)}</td>
+        <td class="num">${br}</td><td class="num">${dur}</td></tr>`;
     }).join('');
 }
+
+// Личная карточка сотрудника (последние ~2 месяца)
+window.openEmpCard = async id => {
+  const e = employees.find(x => x.id === id) || { name: (records.find(r => r.employeeId === id) || {}).name || '' };
+  try {
+    const from = TabelStats.dateOf(Date.now() - 62 * 864e5);
+    const recs = await api('admin_records', { employeeId: id, from });
+    TabelStats.openCard(e.name, () => recs);
+  } catch (err) { alert(err.message); }
+};
 
 function renderLog() {
   $('log').innerHTML = '<tr><th>Дата</th><th>Время</th><th>Сотрудник</th><th>Отметка</th><th>Координаты</th><th>Точность</th><th>Геозона</th><th>Лицо</th><th></th></tr>' +
     [...records].sort((a, b) => b.ts - a.ts).map(r => `<tr><td>${dmy(r.date)}</td><td class="num">${r.time}</td><td>${esc(r.name)}</td>
-      <td><span class="tag ${r.type}">${r.type === 'in' ? 'Приход' : 'Уход'}</span></td>
-      <td class="num"><a href="https://maps.google.com/?q=${r.lat},${r.lon}" target="_blank">${r.lat}, ${r.lon}</a></td>
-      <td class="num">±${r.accuracy ?? '?'} м</td>
-      <td>${r.inside == null ? '<span class="muted">не задана</span>' : r.inside ? `<span class="tag okz">${r.distance} м</span>` : `<span class="tag warn">вне: ${r.distance} м</span>`}</td>
+      <td><span class="tag ${r.type}">${TYPE_RU[r.type]}</span></td>
+      <td class="num">${r.lat != null ? `<a href="https://maps.google.com/?q=${r.lat},${r.lon}" target="_blank">${r.lat}, ${r.lon}</a>` : '<span class="muted">—</span>'}</td>
+      <td class="num">${r.accuracy != null ? '±' + r.accuracy + ' м' : ''}</td>
+      <td>${r.lat == null ? '' : r.inside == null ? '<span class="muted">не задана</span>' : r.inside ? `<span class="tag okz">${r.distance} м</span>` : `<span class="tag warn">вне: ${r.distance} м</span>`}</td>
       <td>${faceCell(r) || '<span class="muted">—</span>'}</td>
       <td><button class="btn ghost small" onclick="delRec('${r.id}')">Удалить</button></td></tr>`).join('');
 }
@@ -315,9 +324,10 @@ async function loadEmployees() {
   employees = await api('admin_employees');
   $('fEmp').innerHTML = '<option value="">Все</option>' + employees.map(e => `<option value="${e.id}">${esc(e.name)}</option>`).join('');
   $('emps').innerHTML = '<tr><th>Имя</th><th>Статус</th><th>Образец лица</th><th></th></tr>' + (employees.length ? employees.map(e => `<tr>
-    <td>${esc(e.name)}</td><td>${e.active ? 'работает' : '<span class="muted">отключён</span>'}</td>
+    <td><button class="namebtn" onclick="openEmpCard('${e.id}')">${esc(e.name)}</button></td><td>${e.active ? 'работает' : '<span class="muted">отключён</span>'}</td>
     <td>${e.hasFace ? '<span class="tag okz">есть</span>' : '<span class="tag warn">нет</span>'}</td>
-    <td style="text-align:right;white-space:nowrap"><button class="btn small" onclick="faceEmp('${e.id}')">📷 Лицо</button>
+    <td style="text-align:right;white-space:nowrap"><button class="btn small" onclick="openEmpCard('${e.id}')">📊 Карточка</button>
+    <button class="btn small" onclick="faceEmp('${e.id}')">📷 Лицо</button>
     <button class="btn ghost small" onclick="renameEmp('${e.id}')">Имя</button>
     <button class="btn ghost small" onclick="pinEmp('${e.id}')">Сменить PIN</button>
     <button class="btn ghost small" onclick="toggleEmp('${e.id}', ${!e.active})">${e.active ? 'Отключить' : 'Включить'}</button></td></tr>`).join('')

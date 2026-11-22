@@ -94,6 +94,19 @@
   .btn3d.out.pulse::before { --glow:var(--coral); }
   @keyframes pulse { 0% { transform:scale(.96); opacity:.7 } 100% { transform:scale(1.08); opacity:0 } }
 
+  .btn3d.brk { --c1:#ffe08a; --c2:var(--gold); --shade:#a87a16; }
+  .btn3d.brk .front { color:#3a2900; }
+  .btn3d.brk.pulse::before { --glow:var(--gold); }
+  .btn3d.mid .front { font-size:19px; padding:16px; }
+  .actions { display:flex; flex-direction:column; gap:14px; }
+  .timer { font-variant-numeric:tabular-nums; font-size:32px; font-weight:800; letter-spacing:1px; margin:0 0 4px; color:#fff; }
+  .timer small { font-size:13px; font-weight:500; color:var(--muted); letter-spacing:0; display:block; }
+  .cardBtn { width:100%; margin-top:16px; padding:13px; border-radius:14px; border:1px solid var(--glass-b); background:rgba(255,255,255,.07);
+             color:var(--ink); font-size:16px; font-weight:600; cursor:pointer; transition:transform .15s, background .15s; }
+  .cardBtn:hover { background:rgba(255,255,255,.12); transform:translateY(-2px); }
+  .dot.brk { background:var(--gold); box-shadow:0 0 0 0 rgba(255,207,90,.7); animation:pingG 1.6s infinite; }
+  @keyframes pingG { 70% { box-shadow:0 0 0 10px rgba(255,207,90,0) } 100% { box-shadow:0 0 0 0 rgba(255,207,90,0) } }
+  .coin.brk .side { background:radial-gradient(circle at 35% 30%, #fffbe8, var(--gold) 45%, #b8861a 100%); }
   .link { margin-top:14px; width:100%; background:none; border:0; color:var(--muted); font-size:14px; padding:8px; cursor:pointer; }
   .hello { font-size:22px; font-weight:700; margin:0 0 4px; }
   .status { color:var(--muted); margin:0 0 20px; font-size:15px; display:flex; align-items:center; gap:8px; }
@@ -165,12 +178,15 @@
         <div class="lift">
           <p class="hello" id="hello"></p>
           <p class="status"><span class="dot" id="dot"></span><span id="status"></span></p>
+          <p class="timer hidden" id="timer"></p>
         </div>
-        <div class="lift2">
+        <div class="lift2 actions">
           <button class="btn3d big pulse" id="punchBtn"><span class="edge"></span><span class="front" id="punchLabel"></span></button>
+          <button class="btn3d mid brk hidden" id="breakBtn"><span class="edge"></span><span class="front" id="breakLabel"></span></button>
         </div>
         <div class="lift">
-          <div class="geo">📸 При отметке нужно селфи — оно сверяется с вашим фото<br>📍 Также записывается местоположение</div>
+          <button class="cardBtn" id="cardBtn">📊 Моя карточка: часы за день, неделю, месяц</button>
+          <div class="geo">📸 Приход и уход — с селфи и местоположением<br>☕ Перерыв — одной кнопкой</div>
           <div class="msg" id="punchMsg"></div>
           <button class="link" id="logout">Выйти / другой сотрудник</button>
         </div>
@@ -179,8 +195,9 @@
   </div>
 </main>
 
-<script src="config.js?v=4"></script>
-<script src="face.js?v=4"></script>
+<script src="config.js?v=5"></script>
+<script src="face.js?v=5"></script>
+<script src="stats.js?v=5"></script>
 <script>
 const TZ = 'Asia/Samarkand';
 let offset = 0;            // разница между часами сервера и телефона
@@ -210,6 +227,7 @@ function tick() {
     }
   }
   prev = t;
+  if (session) updateTimer();
   const d = fDate.format(now); $('date').textContent = d.charAt(0).toUpperCase() + d.slice(1);
 }
 async function syncTime() {
@@ -237,9 +255,10 @@ function flipTo(back) { $('flipper').classList.toggle('flipped', back); }
 // ---- 3D-монета и конфетти при успешной отметке ----
 function celebrate(type, time) {
   const w = document.createElement('div'); w.className = 'win';
-  const icon = type === 'in' ? '✓' : '👋';
-  w.innerHTML = `<div class="coin ${type}"><div class="side">${icon}</div><div class="side b">${icon}</div></div>
-    <p>${type === 'in' ? 'Приход отмечен' : 'Хорошего отдыха!'} · ${time.slice(0, 5)}</p>`;
+  const V = { in: ['✓', 'Приход отмечен', 'in'], out: ['👋', 'Хорошего отдыха!', 'out'],
+              break_start: ['☕', 'Приятного перерыва', 'brk'], break_end: ['▶', 'С возвращением!', 'brk'] }[type];
+  w.innerHTML = `<div class="coin ${V[2]}"><div class="side">${V[0]}</div><div class="side b">${V[0]}</div></div>
+    <p>${V[1]} · ${time.slice(0, 5)}</p>`;
   document.body.appendChild(w);
   const colors = ['#3ee6a0', '#ffcf5a', '#ff6b57', '#7cc7ff', '#ffffff'];
   for (let i = 0; i < (reduced ? 0 : 40); i++) {
@@ -276,9 +295,9 @@ $('enter').onclick = async () => {
   const label = $('enter').querySelector('.front');
   $('enter').disabled = true; label.textContent = 'Проверяем…';
   try {
-    const r = await api('status', { employeeId, pin });
+    const r = await api('my_stats', { employeeId, pin });
     store.set('employeeId', employeeId);
-    session = { employeeId, pin, name: r.name, last: r.last };
+    session = { employeeId, pin, name: r.name, last: r.last, records: r.records || [] };
     hide($('loginMsg')); hide($('punchMsg'));
     renderPunch();
     FaceCam.preload().catch(() => {});   // заранее грузим распознавание
@@ -293,17 +312,31 @@ $('logout').onclick = () => {
   flipTo(false);
 };
 
+function stateOf(last) { return !last || last.type === 'out' ? 'off' : last.type === 'break_start' ? 'break' : 'on'; }
+function currentShift() { return TabelStats.build(session.records).find(x => x.current) || null; }
+function updateTimer() {
+  const el = $('timer'), cur = currentShift();
+  if (!cur) { el.classList.add('hidden'); return; }
+  el.classList.remove('hidden');
+  const sec = Math.floor(cur.netMs / 1000), h = Math.floor(sec / 3600), m = Math.floor(sec / 60) % 60, ss = sec % 60;
+  el.innerHTML = `${h}:${String(m).padStart(2, '0')}:${String(ss).padStart(2, '0')}<small>чистое время смены${cur.breakMs ? ' · перерывы ' + TabelStats.fmt(cur.breakMs) : ''}</small>`;
+}
 function renderPunch() {
-  const last = session.last, onShift = last && last.type === 'in';
+  const last = session.last, st = stateOf(last);
   $('hello').textContent = 'Здравствуйте, ' + session.name + '!';
-  $('status').textContent = onShift
-    ? `На смене с ${last.time.slice(0,5)} (${fmtDate(last.date)})`
+  $('status').textContent = st === 'on' ? `На смене с ${(currentShift() || {}).in ? currentShift().in.time.slice(0,5) : last.time.slice(0,5)}`
+    : st === 'break' ? `На перерыве с ${last.time.slice(0,5)}`
     : last ? `Последний уход: ${last.time.slice(0,5)} (${fmtDate(last.date)})` : 'Вы ещё не отмечались';
-  $('dot').className = 'dot' + (onShift ? ' on' : '');
-  const b = $('punchBtn');
-  b.className = 'btn3d big pulse' + (onShift ? ' out' : '');
-  $('punchLabel').textContent = onShift ? '🚪 Я ухожу' : '✅ Я пришёл(а)';
-  b.dataset.type = onShift ? 'out' : 'in';
+  $('dot').className = 'dot' + (st === 'on' ? ' on' : st === 'break' ? ' brk' : '');
+  const b = $('punchBtn'), k = $('breakBtn');
+  b.classList.toggle('hidden', st === 'break');
+  b.className = 'btn3d big pulse' + (st === 'on' ? ' out' : '') + (st === 'break' ? ' hidden' : '');
+  $('punchLabel').textContent = st === 'on' ? '🚪 Я ухожу' : '✅ Я пришёл(а)';
+  b.dataset.type = st === 'on' ? 'out' : 'in';
+  k.className = 'btn3d brk ' + (st === 'break' ? 'big pulse' : 'mid') + (st === 'off' ? ' hidden' : '');
+  $('breakLabel').textContent = st === 'break' ? '▶ Закончить перерыв' : '☕ Начать перерыв';
+  k.dataset.type = st === 'break' ? 'break_end' : 'break_start';
+  updateTimer();
 }
 function fmtDate(d) { const [y,m,dd] = d.split('-'); return `${dd}.${m}.${y}`; }
 
@@ -332,7 +365,7 @@ $('punchBtn').onclick = async () => {
     const { latitude: lat, longitude: lon, accuracy } = pos.coords;
     const r = await api('punch', { employeeId: session.employeeId, pin: session.pin, type, lat, lon, accuracy,
       descriptor: face.descriptor, photo: face.photo });
-    session.last = r.record;
+    session.last = r.record; session.records.push(r.record);
     const rec = r.record;
     let where = `<a href="https://maps.google.com/?q=${rec.lat},${rec.lon}" target="_blank">на карте</a>, точность ±${rec.accuracy ?? '?'} м`;
     if (rec.distance != null) where += rec.inside ? `<br>Вы у ресторана (${rec.distance} м)` : `<br>⚠️ Вы в ${rec.distance} м от ресторана`;
@@ -343,6 +376,23 @@ $('punchBtn').onclick = async () => {
   } catch (e) { if (e.message !== 'Отменено') { shake(); show($('punchMsg'), e.message, 'err'); } }
   b.disabled = false;
 };
+
+// ---- перерыв: без селфи, одной кнопкой ----
+$('breakBtn').onclick = async () => {
+  const k = $('breakBtn'), type = k.dataset.type;
+  k.disabled = true; hide($('punchMsg'));
+  try {
+    const r = await api('punch', { employeeId: session.employeeId, pin: session.pin, type });
+    session.last = r.record; session.records.push(r.record);
+    show($('punchMsg'), `<b>${type === 'break_start' ? 'Перерыв начат' : 'Перерыв закончен'} в ${r.record.time}</b>`, 'ok');
+    celebrate(type, r.record.time);
+    renderPunch();
+  } catch (e) { shake(); show($('punchMsg'), e.message, 'err'); }
+  k.disabled = false;
+};
+
+// ---- личная карточка ----
+$('cardBtn').onclick = () => TabelStats.openCard(session.name, () => session.records);
 </script>
 </body>
 </html>
