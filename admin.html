@@ -44,10 +44,46 @@
   .ph-back img { max-width:92vw; max-height:85vh; border-radius:10px; }
   .ph-back p { color:#fff; position:absolute; bottom:20px; width:100%; text-align:center; }
   .linkbtn { background:none; border:0; color:#1d5fa8; cursor:pointer; padding:0; font-size:14px; text-decoration:underline; }
+
+  /* ---------- 3D-оформление ---------- */
+  header { position:relative; overflow:hidden; background:linear-gradient(120deg, #0b2a1e, #1f3b2d 40%, #17694a 70%, #0b2a1e); background-size:300% 100%; animation:hdr 14s ease infinite; padding:18px 20px; perspective:600px; }
+  @keyframes hdr { 50% { background-position:100% 0 } }
+  header::before, header::after { content:""; position:absolute; border-radius:50%; border:2px solid rgba(62,230,160,.35); pointer-events:none; }
+  header::before { width:260px; height:260px; right:-60px; top:-110px; animation:hring 18s linear infinite; }
+  header::after { width:160px; height:160px; right:140px; top:-40px; border-color:rgba(255,207,90,.3); animation:hring 12s linear infinite reverse; }
+  @keyframes hring { from { transform:rotateX(65deg) rotateZ(0) } to { transform:rotateX(65deg) rotateZ(360deg) } }
+  .logo3d { width:34px; height:34px; position:relative; transform-style:preserve-3d; animation:cube 9s linear infinite; flex:none; }
+  .logo3d span { position:absolute; inset:0; border-radius:6px; background:rgba(62,230,160,.85); border:1px solid rgba(255,255,255,.5); }
+  .logo3d span:nth-child(1) { transform:translateZ(17px) } .logo3d span:nth-child(2) { transform:rotateY(180deg) translateZ(17px); background:rgba(23,184,119,.85) }
+  .logo3d span:nth-child(3) { transform:rotateY(90deg) translateZ(17px); background:rgba(255,207,90,.85) } .logo3d span:nth-child(4) { transform:rotateY(-90deg) translateZ(17px); background:rgba(255,207,90,.85) }
+  .logo3d span:nth-child(5) { transform:rotateX(90deg) translateZ(17px); background:rgba(255,255,255,.7) } .logo3d span:nth-child(6) { transform:rotateX(-90deg) translateZ(17px); background:rgba(255,255,255,.7) }
+  @keyframes cube { from { transform:rotateX(-20deg) rotateY(0) } to { transform:rotateX(-20deg) rotateY(360deg) } }
+  header h1, header #clock, header button { position:relative; z-index:1; }
+  main, .card.solo { perspective:1400px; }
+  .card { transform-origin:50% 0; animation:cardIn .6s cubic-bezier(.2,.8,.2,1.1); }
+  @keyframes cardIn { from { opacity:0; transform:rotateX(-18deg) translateY(24px) } to { opacity:1; transform:none } }
+  nav button { transition:transform .2s, background .2s; }
+  nav button:hover { transform:translateY(-2px); }
+  button.btn { box-shadow:0 4px 0 rgba(0,0,0,.25); transition:transform .1s, box-shadow .1s; }
+  button.btn:active { transform:translateY(3px); box-shadow:0 1px 0 rgba(0,0,0,.25); }
+  table tr { animation:rowIn .45s ease-out both; }
+  @keyframes rowIn { from { opacity:0; transform:translateX(-12px) } }
+  .kpis { display:grid; grid-template-columns:repeat(auto-fit, minmax(170px, 1fr)); gap:14px; margin:4px 0 18px; perspective:800px; }
+  .kpi { position:relative; padding:16px 18px; border-radius:16px; color:#fff; overflow:hidden; transform-style:preserve-3d; transition:transform .25s;
+         background:linear-gradient(135deg, var(--k1), var(--k2)); box-shadow:0 14px 30px rgba(15,60,40,.25); }
+  .kpi:hover { transform:rotateX(8deg) rotateY(-10deg) translateZ(10px); }
+  .kpi b { display:block; font-size:30px; line-height:1.1; transform:translateZ(30px); }
+  .kpi span { font-size:13px; opacity:.85; transform:translateZ(20px); display:block; }
+  .kpi::after { content:""; position:absolute; width:120px; height:120px; right:-30px; bottom:-50px; border-radius:50%; background:rgba(255,255,255,.15); }
+  .k1 { --k1:#17b877; --k2:#0b6b45; } .k2 { --k1:#ffb547; --k2:#d9792a; } .k3 { --k1:#5aa9ff; --k2:#2d63c9; } .k4 { --k1:#ff7a66; --k2:#c9402c; }
+  .now span { animation:pop .5s cubic-bezier(.3,1.6,.6,1) both; }
+  @keyframes pop { from { transform:scale(.6) rotateX(60deg); opacity:0 } }
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation:none !important; transition:none !important; } }
 </style>
 </head>
 <body>
 <header>
+  <div class="logo3d" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span></div>
   <h1 id="title">Панель управляющего</h1>
   <div id="clock"></div>
   <button class="btn ghost small hidden" id="logoutBtn">Выйти</button>
@@ -78,6 +114,7 @@
         <button class="btn" id="reload">Показать</button>
         <button class="btn ghost" id="csv">Скачать CSV (Excel)</button>
       </div>
+      <div class="kpis" id="kpis"></div>
       <h2>Сейчас на смене</h2>
       <div class="now" id="nowOn"><span class="muted">—</span></div>
       <h2>Итого часов</h2>
@@ -124,8 +161,8 @@
   </main>
 </div>
 
-<script src="config.js?v=3"></script>
-<script src="face.js?v=3"></script>
+<script src="config.js?v=4"></script>
+<script src="face.js?v=4"></script>
 <script>
 const TZ = 'Asia/Samarkand';
 const $ = id => document.getElementById(id);
@@ -168,6 +205,7 @@ if (PASS) tryLogin();
 document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
   document.querySelectorAll('nav button').forEach(x => x.classList.toggle('active', x === b));
   ['tabel', 'log', 'emps', 'settings'].forEach(t => $('tab-' + t).classList.toggle('hidden', t !== b.dataset.tab));
+  const card = $('tab-' + b.dataset.tab); card.style.animation = 'none'; void card.offsetWidth; card.style.animation = '';
 });
 
 async function init() {
@@ -241,6 +279,12 @@ function renderTabel() {
     if ((s.in && s.in.inside === false) || (s.out && s.out.inside === false)) tot[name].outside++;
   });
   const names = Object.keys(tot).sort();
+  const totalMs = Object.values(tot).reduce((a, t) => a + t.ms, 0);
+  const outside = records.filter(r => r.inside === false).length;
+  $('kpis').innerHTML = `<div class="kpi k1"><b>${on.length}</b><span>сейчас на смене</span></div>
+    <div class="kpi k2"><b>${hm(totalMs).replace(' мин', 'м').replace(' ч ', 'ч ')}</b><span>отработано за период</span></div>
+    <div class="kpi k3"><b>${records.length}</b><span>отметок за период</span></div>
+    <div class="kpi k4"><b>${outside}</b><span>отметок вне зоны</span></div>`;
   $('totals').innerHTML = '<tr><th>Сотрудник</th><th>Смен</th><th>Отработано</th><th>Незакрытые</th><th>Отметки вне зоны</th></tr>' +
     (names.length ? names.map(n => `<tr><td>${esc(n)}</td><td class="num">${tot[n].n}</td><td class="num"><b>${hm(tot[n].ms)}</b></td><td>${tot[n].open || ''}</td><td>${tot[n].outside ? `<span class="tag warn">${tot[n].outside}</span>` : ''}</td></tr>`).join('')
       : '<tr><td colspan="5" class="muted">Нет отметок за период</td></tr>');

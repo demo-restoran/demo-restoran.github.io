@@ -29,18 +29,23 @@
   }
 
   const css = `
-  .fc-back{position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:1000;display:flex;align-items:center;justify-content:center;padding:16px}
-  .fc-box{background:#fff;border-radius:16px;max-width:420px;width:100%;padding:16px;text-align:center;font-family:inherit;color:#1d1d1b}
-  .fc-title{font-weight:600;font-size:17px;margin:0 0 10px}
-  .fc-wrap{position:relative;border-radius:12px;overflow:hidden;background:#111;aspect-ratio:3/4}
+  .fc-back{position:fixed;inset:0;background:rgba(2,10,7,.82);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);z-index:1000;display:flex;align-items:center;justify-content:center;padding:16px;perspective:1000px}
+  .fc-box{background:linear-gradient(145deg,rgba(255,255,255,.13),rgba(255,255,255,.04));border:1px solid rgba(255,255,255,.16);border-radius:22px;max-width:420px;width:100%;padding:18px;text-align:center;font-family:inherit;color:#f3f1ea;box-shadow:0 40px 80px rgba(0,0,0,.6);animation:fcIn .55s cubic-bezier(.2,.8,.2,1.2)}
+  @keyframes fcIn{from{transform:rotateX(35deg) translateY(60px) scale(.9);opacity:0}to{transform:none;opacity:1}}
+  .fc-title{font-weight:700;font-size:18px;margin:0 0 12px}
+  .fc-wrap{position:relative;border-radius:16px;overflow:hidden;background:#000;aspect-ratio:3/4;box-shadow:inset 0 0 0 1px rgba(255,255,255,.1)}
   .fc-wrap video{width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
-  .fc-oval{position:absolute;left:18%;right:18%;top:12%;bottom:18%;border:3px dashed rgba(255,255,255,.75);border-radius:50%}
-  .fc-hint{font-size:14px;color:#6b6a63;margin:10px 0}
-  .fc-hint.err{color:#b23a2e}
-  .fc-btns{display:flex;gap:8px}
-  .fc-btns button{flex:1;border:0;border-radius:10px;padding:14px;font-size:17px;font-weight:600;cursor:pointer}
-  .fc-shot{background:#1f3b2d;color:#fff} .fc-shot:disabled{opacity:.5}
-  .fc-cancel{background:#efece4;color:#1d1d1b}`;
+  .fc-oval{position:absolute;left:17%;right:17%;top:11%;bottom:17%;border:3px solid rgba(62,230,160,.85);border-radius:50%;box-shadow:0 0 0 2000px rgba(0,0,0,.35),0 0 25px rgba(62,230,160,.6);overflow:hidden}
+  .fc-oval::after{content:"";position:absolute;left:0;right:0;height:30%;top:-30%;background:linear-gradient(180deg,transparent,rgba(62,230,160,.45),transparent);animation:fcScan 2s linear infinite}
+  @keyframes fcScan{to{top:100%}}
+  .fc-hint{font-size:14px;color:#a9b8b0;margin:12px 0}
+  .fc-hint.err{color:#ff9d8c}
+  .fc-btns{display:flex;gap:10px}
+  .fc-btns button{flex:1;border:0;border-radius:14px;padding:15px;font-size:17px;font-weight:700;cursor:pointer;transition:transform .12s}
+  .fc-btns button:active{transform:translateY(3px)}
+  .fc-shot{background:linear-gradient(180deg,#3ee6a0,#17b877);color:#04140d;box-shadow:0 6px 0 #0e7d52} .fc-shot:disabled{opacity:.5}
+  .fc-cancel{background:rgba(255,255,255,.1);color:#f3f1ea;box-shadow:0 6px 0 rgba(0,0,0,.35)}
+  @media (prefers-reduced-motion: reduce){.fc-box,.fc-oval::after{animation:none}}`;
 
   function capture(title) {
     return new Promise((resolve, reject) => {
