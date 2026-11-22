@@ -1,6 +1,6 @@
 // Адрес веб-приложения Google Apps Script (заканчивается на /exec).
-// Вставьте его сюда после развёртывания скрипта в Google Таблице.
-window.API_URL = 'ВСТАВЬТЕ_СЮДА_АДРЕС_/exec';
+// Таблица: https://docs.google.com/spreadsheets/d/1qhKF8rFVevoXluHJh0aYbVco7sJoDsOPsw9fmzDz4DI
+window.API_URL = 'https://script.google.com/macros/s/AKfycbyyxyE6bE8G_7LdwL1DFi2FlTFpUwMv3iKB5Z1xM_sFwd5sEKLdU9WgnBBe7qGkIitPgw/exec';
 
 // Общая функция обращения к серверу
 window.callApi = async function (action, data) {
