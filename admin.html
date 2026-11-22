@@ -40,6 +40,10 @@
   .now { display:flex; gap:8px; flex-wrap:wrap; }
   .now span { background:#e4f3ea; color:#145a37; padding:6px 12px; border-radius:20px; font-size:14px; }
   a { color:#1d5fa8; }
+  .ph-back { position:fixed; inset:0; background:rgba(0,0,0,.8); display:flex; align-items:center; justify-content:center; z-index:900; cursor:pointer; }
+  .ph-back img { max-width:92vw; max-height:85vh; border-radius:10px; }
+  .ph-back p { color:#fff; position:absolute; bottom:20px; width:100%; text-align:center; }
+  .linkbtn { background:none; border:0; color:#1d5fa8; cursor:pointer; padding:0; font-size:14px; text-decoration:underline; }
 </style>
 </head>
 <body>
@@ -96,6 +100,7 @@
       </div>
       <div class="msg" id="empMsg"></div>
       <h2>Список</h2>
+      <p class="muted">«📷 Лицо» — сфотографируйте сотрудника (лицо крупно, хороший свет). С этим образцом будут сверяться его селфи при отметке. Делайте это на телефоне или ноутбуке с камерой.</p>
       <table id="emps"></table>
     </div>
 
@@ -119,7 +124,8 @@
   </main>
 </div>
 
-<script src="config.js"></script>
+<script src="config.js?v=3"></script>
+<script src="face.js?v=3"></script>
 <script>
 const TZ = 'Asia/Samarkand';
 const $ = id => document.getElementById(id);
@@ -204,8 +210,23 @@ function buildShifts() {
 function geoCell(r) {
   if (!r) return '';
   const zone = r.inside == null ? '' : r.inside ? ` <span class="tag okz">${r.distance} м</span>` : ` <span class="tag warn">вне зоны: ${r.distance} м</span>`;
-  return `<a href="https://maps.google.com/?q=${r.lat},${r.lon}" target="_blank">карта</a>${zone}`;
+  return `<a href="https://maps.google.com/?q=${r.lat},${r.lon}" target="_blank">карта</a>${zone} ${faceCell(r)}`;
 }
+function faceCell(r) {
+  if (!r || !r.photoId) return '';
+  const tag = r.face === 'совпало' ? '<span class="tag okz">лицо ✓</span>' : '<span class="tag warn">без образца</span>';
+  return `${tag} <button class="linkbtn" onclick="showPhoto('${r.photoId}', '${esc(r.name)} — ${r.type === 'in' ? 'приход' : 'уход'} ${dmy(r.date)} ${r.time}')">селфи</button>`;
+}
+window.showPhoto = async (id, caption) => {
+  const back = document.createElement('div'); back.className = 'ph-back';
+  back.innerHTML = '<p>Загрузка фото…</p>'; back.onclick = () => back.remove();
+  document.body.appendChild(back);
+  try {
+    const r = await api('admin_photo', { photoId: id });
+    back.innerHTML = `<img alt="Селфи"><p></p>`;
+    back.querySelector('img').src = r.dataUrl; back.querySelector('p').textContent = caption + ' (нажмите, чтобы закрыть)';
+  } catch (e) { back.querySelector('p').textContent = 'Не удалось загрузить фото: ' + e.message; }
+};
 
 function renderTabel() {
   const shifts = buildShifts();
@@ -234,12 +255,13 @@ function renderTabel() {
 }
 
 function renderLog() {
-  $('log').innerHTML = '<tr><th>Дата</th><th>Время</th><th>Сотрудник</th><th>Отметка</th><th>Координаты</th><th>Точность</th><th>Геозона</th><th></th></tr>' +
+  $('log').innerHTML = '<tr><th>Дата</th><th>Время</th><th>Сотрудник</th><th>Отметка</th><th>Координаты</th><th>Точность</th><th>Геозона</th><th>Лицо</th><th></th></tr>' +
     [...records].sort((a, b) => b.ts - a.ts).map(r => `<tr><td>${dmy(r.date)}</td><td class="num">${r.time}</td><td>${esc(r.name)}</td>
       <td><span class="tag ${r.type}">${r.type === 'in' ? 'Приход' : 'Уход'}</span></td>
       <td class="num"><a href="https://maps.google.com/?q=${r.lat},${r.lon}" target="_blank">${r.lat}, ${r.lon}</a></td>
       <td class="num">±${r.accuracy ?? '?'} м</td>
       <td>${r.inside == null ? '<span class="muted">не задана</span>' : r.inside ? `<span class="tag okz">${r.distance} м</span>` : `<span class="tag warn">вне: ${r.distance} м</span>`}</td>
+      <td>${faceCell(r) || '<span class="muted">—</span>'}</td>
       <td><button class="btn ghost small" onclick="delRec('${r.id}')">Удалить</button></td></tr>`).join('');
 }
 window.delRec = async id => { if (!confirm('Удалить эту отметку?')) return; await api('admin_delete_record', { id }); loadRecords(); };
@@ -248,12 +270,14 @@ window.delRec = async id => { if (!confirm('Удалить эту отметку
 async function loadEmployees() {
   employees = await api('admin_employees');
   $('fEmp').innerHTML = '<option value="">Все</option>' + employees.map(e => `<option value="${e.id}">${esc(e.name)}</option>`).join('');
-  $('emps').innerHTML = '<tr><th>Имя</th><th>Статус</th><th></th></tr>' + (employees.length ? employees.map(e => `<tr>
+  $('emps').innerHTML = '<tr><th>Имя</th><th>Статус</th><th>Образец лица</th><th></th></tr>' + (employees.length ? employees.map(e => `<tr>
     <td>${esc(e.name)}</td><td>${e.active ? 'работает' : '<span class="muted">отключён</span>'}</td>
-    <td style="text-align:right;white-space:nowrap"><button class="btn ghost small" onclick="renameEmp('${e.id}')">Имя</button>
+    <td>${e.hasFace ? '<span class="tag okz">есть</span>' : '<span class="tag warn">нет</span>'}</td>
+    <td style="text-align:right;white-space:nowrap"><button class="btn small" onclick="faceEmp('${e.id}')">📷 Лицо</button>
+    <button class="btn ghost small" onclick="renameEmp('${e.id}')">Имя</button>
     <button class="btn ghost small" onclick="pinEmp('${e.id}')">Сменить PIN</button>
     <button class="btn ghost small" onclick="toggleEmp('${e.id}', ${!e.active})">${e.active ? 'Отключить' : 'Включить'}</button></td></tr>`).join('')
-    : '<tr><td colspan="3" class="muted">Пока никого нет</td></tr>');
+    : '<tr><td colspan="4" class="muted">Пока никого нет</td></tr>');
 }
 function empMsg(t, ok) { $('empMsg').className = 'msg ' + (ok ? 'ok' : 'err'); $('empMsg').textContent = t; }
 $('addEmp').onclick = async () => {
@@ -263,6 +287,15 @@ $('addEmp').onclick = async () => {
 };
 window.renameEmp = async id => { const n = prompt('Новое имя:'); if (!n) return; try { await api('admin_save_employee', { id, name: n }); loadEmployees(); } catch (e) { empMsg(e.message); } };
 window.pinEmp = async id => { const p = prompt('Новый PIN (4–8 цифр):'); if (!p) return; try { await api('admin_save_employee', { id, pin: p.trim() }); empMsg('PIN изменён', true); } catch (e) { empMsg(e.message); } };
+window.faceEmp = async id => {
+  const e = employees.find(x => x.id === id);
+  try {
+    const f = await FaceCam.capture('Образец лица: ' + e.name);
+    empMsg('Сохраняем образец…', true);
+    await api('admin_set_face', { id, descriptor: f.descriptor });
+    empMsg('Образец лица для «' + e.name + '» сохранён.', true); loadEmployees();
+  } catch (err) { if (err.message !== 'Отменено') empMsg(err.message); }
+};
 window.toggleEmp = async (id, active) => { await api('admin_save_employee', { id, active }); loadEmployees(); };
 
 // ---- настройки ----

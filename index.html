@@ -60,13 +60,14 @@
     <p class="hello" id="hello"></p>
     <p class="status" id="status"></p>
     <button class="big" id="punchBtn"></button>
-    <div class="geo" id="geoNote">При отметке будет записано ваше местоположение</div>
+    <div class="geo" id="geoNote">При отметке нужно селфи — оно сверяется с вашим фото; также записывается местоположение</div>
     <div class="msg" id="punchMsg"></div>
     <button class="link" id="logout">Выйти / другой сотрудник</button>
   </div>
 </main>
 
-<script src="config.js"></script>
+<script src="config.js?v=3"></script>
+<script src="face.js?v=3"></script>
 <script>
 const TZ = 'Asia/Samarkand';
 let offset = 0;            // разница между часами сервера и телефона
@@ -117,6 +118,7 @@ $('enter').onclick = async () => {
     session = { employeeId, pin, name: r.name, last: r.last };
     hide($('loginMsg')); hide($('punchMsg'));
     renderPunch();
+    FaceCam.preload().catch(() => {});   // заранее грузим распознавание
     $('login').classList.add('hidden'); $('punch').classList.remove('hidden');
   } catch (e) { show($('loginMsg'), e.message, 'err'); }
   $('enter').disabled = false;
@@ -156,18 +158,24 @@ function getPosition() {
 
 $('punchBtn').onclick = async () => {
   const b = $('punchBtn'), type = b.dataset.type;
-  b.disabled = true; show($('punchMsg'), '📍 Определяем местоположение…', 'info');
+  b.disabled = true; hide($('punchMsg'));
+  const posP = getPosition();          // геолокация определяется, пока делается селфи
+  posP.catch(() => {});
   try {
-    const pos = await getPosition();
+    const face = await FaceCam.capture(type === 'in' ? 'Селфи: отметка прихода' : 'Селфи: отметка ухода');
+    show($('punchMsg'), '📍 Определяем местоположение и отправляем…', 'info');
+    const pos = await posP;
     const { latitude: lat, longitude: lon, accuracy } = pos.coords;
-    const r = await api('punch', { employeeId: session.employeeId, pin: session.pin, type, lat, lon, accuracy });
+    const r = await api('punch', { employeeId: session.employeeId, pin: session.pin, type, lat, lon, accuracy,
+      descriptor: face.descriptor, photo: face.photo });
     session.last = r.record;
     const rec = r.record;
     let where = `<a href="https://maps.google.com/?q=${rec.lat},${rec.lon}" target="_blank">на карте</a>, точность ±${rec.accuracy ?? '?'} м`;
     if (rec.distance != null) where += rec.inside ? `<br>Вы у ресторана (${rec.distance} м)` : `<br>⚠️ Вы в ${rec.distance} м от ресторана`;
+    where += rec.face === 'совпало' ? '<br>🙂 Лицо подтверждено' : '<br>📷 Селфи сохранено (образец лица ещё не задан управляющим)';
     show($('punchMsg'), `<b>${type === 'in' ? 'Приход' : 'Уход'} отмечен в ${rec.time}</b><br>${where}`, rec.inside === false ? 'err' : 'ok');
     renderPunch();
-  } catch (e) { show($('punchMsg'), e.message, 'err'); }
+  } catch (e) { if (e.message !== 'Отменено') show($('punchMsg'), e.message, 'err'); }
   b.disabled = false;
 };
 </script>
