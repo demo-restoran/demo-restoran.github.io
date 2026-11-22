@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1f3b2d">
+<title>Отметка на работе</title>
+<style>
+  :root { --bg:#f6f3ec; --card:#fff; --ink:#1d1d1b; --muted:#6b6a63; --green:#1f7a4d; --red:#b23a2e; --line:#e4dfd3; --accent:#1f3b2d; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; background:var(--bg); color:var(--ink); min-height:100vh; }
+  header { background:var(--accent); color:#fff; padding:22px 20px 26px; text-align:center; }
+  header h1 { margin:0 0 4px; font-size:17px; font-weight:600; opacity:.9; }
+  #clock { font-size:52px; font-weight:700; font-variant-numeric:tabular-nums; letter-spacing:1px; }
+  #date { font-size:15px; opacity:.85; }
+  .tz { font-size:12px; opacity:.6; margin-top:4px; }
+  main { max-width:440px; margin:-14px auto 0; padding:0 16px 40px; }
+  .card { background:var(--card); border-radius:16px; padding:20px; box-shadow:0 2px 10px rgba(0,0,0,.06); margin-bottom:14px; }
+  label { display:block; font-size:13px; color:var(--muted); margin:0 0 6px; }
+  select, input { width:100%; font-size:18px; padding:13px 14px; border:1px solid var(--line); border-radius:10px; background:#fff; margin-bottom:14px; }
+  input { letter-spacing:6px; text-align:center; }
+  button { width:100%; border:0; border-radius:12px; font-size:18px; font-weight:600; padding:16px; cursor:pointer; color:#fff; background:var(--accent); }
+  button:disabled { opacity:.5; }
+  .big { font-size:24px; padding:26px; }
+  .in { background:var(--green); }
+  .out { background:var(--red); }
+  .link { background:none; color:var(--muted); font-size:14px; font-weight:400; padding:10px; margin-top:6px; }
+  .hello { font-size:20px; font-weight:600; margin:0 0 4px; }
+  .status { color:var(--muted); margin:0 0 18px; font-size:15px; }
+  .msg { padding:14px; border-radius:10px; font-size:15px; margin-top:14px; display:none; line-height:1.4; }
+  .msg.ok { background:#e4f3ea; color:#145a37; display:block; }
+  .msg.err { background:#f8e3df; color:#8a2a20; display:block; }
+  .msg.info { background:#eef0f3; color:#3b4250; display:block; }
+  .hidden { display:none; }
+  .geo { font-size:13px; color:var(--muted); margin-top:10px; text-align:center; }
+  a { color:inherit; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="rname">Ресторан</h1>
+  <div id="clock">--:--:--</div>
+  <div id="date">&nbsp;</div>
+  <div class="tz">Время Самарканда (UTC+5)</div>
+</header>
+
+<main>
+  <!-- шаг 1: вход -->
+  <div class="card" id="login">
+    <label for="emp">Сотрудник</label>
+    <select id="emp"><option value="">Загрузка…</option></select>
+    <label for="pin">PIN-код</label>
+    <input id="pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="8" autocomplete="off" placeholder="••••">
+    <button id="enter">Войти</button>
+    <div class="msg" id="loginMsg"></div>
+  </div>
+
+  <!-- шаг 2: отметка -->
+  <div class="card hidden" id="punch">
+    <p class="hello" id="hello"></p>
+    <p class="status" id="status"></p>
+    <button class="big" id="punchBtn"></button>
+    <div class="geo" id="geoNote">При отметке будет записано ваше местоположение</div>
+    <div class="msg" id="punchMsg"></div>
+    <button class="link" id="logout">Выйти / другой сотрудник</button>
+  </div>
+</main>
+
+<script src="config.js"></script>
+<script>
+const TZ = 'Asia/Samarkand';
+let offset = 0;            // разница между часами сервера и телефона
+let session = null;        // { employeeId, pin, name, last }
+const $ = id => document.getElementById(id);
+const store = { get(k){ try { return localStorage.getItem(k); } catch(e){ return null; } }, set(k,v){ try { localStorage.setItem(k,v); } catch(e){} } };
+
+// ---- часы по Самарканду ----
+const fTime = new Intl.DateTimeFormat('ru-RU', { timeZone: TZ, hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false });
+const fDate = new Intl.DateTimeFormat('ru-RU', { timeZone: TZ, weekday:'long', day:'numeric', month:'long', year:'numeric' });
+function tick() {
+  const now = new Date(Date.now() + offset);
+  $('clock').textContent = fTime.format(now);
+  const d = fDate.format(now); $('date').textContent = d.charAt(0).toUpperCase() + d.slice(1);
+}
+async function syncTime() {
+  try { const t0 = Date.now(); const r = await callApi('time'); offset = r.ts - (t0 + Date.now()) / 2; } catch(e) {}
+}
+setInterval(tick, 1000); tick(); syncTime(); setInterval(syncTime, 5 * 60 * 1000);
+
+function api(action, body) { return callApi(action, body); }
+function show(el, text, kind) { el.className = 'msg ' + kind; el.innerHTML = text; }
+function hide(el) { el.className = 'msg'; }
+
+// ---- загрузка ----
+(async () => {
+  try {
+    const info = await api('info');
+    $('rname').textContent = info.restaurantName;
+    document.title = 'Отметка — ' + info.restaurantName;
+    const list = await api('employees');
+    const sel = $('emp');
+    sel.innerHTML = '<option value="">— выберите себя —</option>' + list.map(e => `<option value="${e.id}">${e.name.replace(/</g,'&lt;')}</option>`).join('');
+    const saved = store.get('employeeId'); if (saved && list.some(e => e.id === saved)) sel.value = saved;
+    if (!list.length) show($('loginMsg'), 'Сотрудники ещё не добавлены. Управляющему: откройте <a href="admin.html">/admin</a>.', 'info');
+  } catch (e) { show($('loginMsg'), e.message, 'err'); }
+})();
+
+// ---- вход ----
+$('enter').onclick = async () => {
+  const employeeId = $('emp').value, pin = $('pin').value.trim();
+  if (!employeeId) return show($('loginMsg'), 'Выберите себя в списке', 'err');
+  if (!pin) return show($('loginMsg'), 'Введите PIN-код', 'err');
+  $('enter').disabled = true;
+  try {
+    const r = await api('status', { employeeId, pin });
+    store.set('employeeId', employeeId);
+    session = { employeeId, pin, name: r.name, last: r.last };
+    hide($('loginMsg')); hide($('punchMsg'));
+    renderPunch();
+    $('login').classList.add('hidden'); $('punch').classList.remove('hidden');
+  } catch (e) { show($('loginMsg'), e.message, 'err'); }
+  $('enter').disabled = false;
+};
+$('pin').addEventListener('keydown', e => { if (e.key === 'Enter') $('enter').click(); });
+
+$('logout').onclick = () => {
+  session = null; $('pin').value = '';
+  $('punch').classList.add('hidden'); $('login').classList.remove('hidden');
+};
+
+function renderPunch() {
+  const last = session.last, onShift = last && last.type === 'in';
+  $('hello').textContent = 'Здравствуйте, ' + session.name + '!';
+  $('status').textContent = onShift
+    ? `На смене с ${last.time.slice(0,5)} (${fmtDate(last.date)})`
+    : last ? `Последний уход: ${last.time.slice(0,5)} (${fmtDate(last.date)})` : 'Вы ещё не отмечались';
+  const b = $('punchBtn');
+  b.className = 'big ' + (onShift ? 'out' : 'in');
+  b.textContent = onShift ? '🚪 Я ухожу' : '✅ Я пришёл(а)';
+  b.dataset.type = onShift ? 'out' : 'in';
+}
+function fmtDate(d) { const [y,m,dd] = d.split('-'); return `${dd}.${m}.${y}`; }
+
+// ---- геолокация ----
+function getPosition() {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) return reject(new Error('Телефон не поддерживает геолокацию'));
+    navigator.geolocation.getCurrentPosition(resolve, err => {
+      const m = { 1: 'Доступ к местоположению запрещён. Разрешите его в настройках браузера и попробуйте снова.',
+                  2: 'Не удалось определить местоположение. Включите GPS.',
+                  3: 'Слишком долго определяется местоположение. Попробуйте ещё раз.' };
+      reject(new Error(m[err.code] || err.message));
+    }, { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
+  });
+}
+
+$('punchBtn').onclick = async () => {
+  const b = $('punchBtn'), type = b.dataset.type;
+  b.disabled = true; show($('punchMsg'), '📍 Определяем местоположение…', 'info');
+  try {
+    const pos = await getPosition();
+    const { latitude: lat, longitude: lon, accuracy } = pos.coords;
+    const r = await api('punch', { employeeId: session.employeeId, pin: session.pin, type, lat, lon, accuracy });
+    session.last = r.record;
+    const rec = r.record;
+    let where = `<a href="https://maps.google.com/?q=${rec.lat},${rec.lon}" target="_blank">на карте</a>, точность ±${rec.accuracy ?? '?'} м`;
+    if (rec.distance != null) where += rec.inside ? `<br>Вы у ресторана (${rec.distance} м)` : `<br>⚠️ Вы в ${rec.distance} м от ресторана`;
+    show($('punchMsg'), `<b>${type === 'in' ? 'Приход' : 'Уход'} отмечен в ${rec.time}</b><br>${where}`, rec.inside === false ? 'err' : 'ok');
+    renderPunch();
+  } catch (e) { show($('punchMsg'), e.message, 'err'); }
+  b.disabled = false;
+};
+</script>
+</body>
+</html>

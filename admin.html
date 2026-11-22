@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Панель управляющего — табель</title>
+<style>
+  :root { --bg:#f6f3ec; --card:#fff; --ink:#1d1d1b; --muted:#6b6a63; --green:#1f7a4d; --red:#b23a2e; --line:#e4dfd3; --accent:#1f3b2d; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; background:var(--bg); color:var(--ink); font-size:15px; }
+  header { background:var(--accent); color:#fff; padding:14px 20px; display:flex; align-items:center; gap:16px; flex-wrap:wrap; }
+  header h1 { font-size:18px; margin:0; flex:1; }
+  #clock { font-variant-numeric:tabular-nums; opacity:.9; }
+  nav { display:flex; gap:4px; padding:12px 20px 0; max-width:1100px; margin:0 auto; flex-wrap:wrap; }
+  nav button { background:transparent; color:var(--muted); border:0; padding:10px 16px; border-radius:10px 10px 0 0; font-size:15px; cursor:pointer; }
+  nav button.active { background:var(--card); color:var(--ink); font-weight:600; }
+  main { max-width:1100px; margin:0 auto; padding:0 20px 40px; }
+  .card { background:var(--card); border-radius:0 12px 12px 12px; padding:20px; box-shadow:0 2px 10px rgba(0,0,0,.05); margin-bottom:16px; }
+  .card.solo { border-radius:12px; max-width:380px; margin:60px auto; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:end; margin-bottom:14px; }
+  .row > div { display:flex; flex-direction:column; gap:4px; }
+  label { font-size:12px; color:var(--muted); }
+  input, select { font-size:15px; padding:9px 11px; border:1px solid var(--line); border-radius:8px; background:#fff; }
+  button.btn { font-size:15px; padding:10px 16px; border:0; border-radius:8px; background:var(--accent); color:#fff; cursor:pointer; }
+  button.ghost { background:#efece4; color:var(--ink); }
+  button.small { padding:5px 10px; font-size:13px; }
+  table { width:100%; border-collapse:collapse; }
+  th, td { text-align:left; padding:9px 8px; border-bottom:1px solid var(--line); font-size:14px; vertical-align:top; }
+  th { font-size:12px; color:var(--muted); font-weight:600; text-transform:uppercase; letter-spacing:.3px; }
+  td.num { font-variant-numeric:tabular-nums; }
+  .tag { display:inline-block; padding:2px 8px; border-radius:20px; font-size:12px; font-weight:600; }
+  .tag.in { background:#e4f3ea; color:#145a37; } .tag.out { background:#f8e3df; color:#8a2a20; }
+  .tag.warn { background:#fff1d6; color:#8a5a00; } .tag.okz { background:#e4f3ea; color:#145a37; }
+  .muted { color:var(--muted); }
+  .hidden { display:none; }
+  .msg { margin-top:10px; font-size:14px; }
+  .msg.err { color:var(--red); } .msg.ok { color:var(--green); }
+  h2 { font-size:16px; margin:22px 0 10px; } h2:first-child { margin-top:0; }
+  .scroll { overflow-x:auto; }
+  .now { display:flex; gap:8px; flex-wrap:wrap; }
+  .now span { background:#e4f3ea; color:#145a37; padding:6px 12px; border-radius:20px; font-size:14px; }
+  a { color:#1d5fa8; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">Панель управляющего</h1>
+  <div id="clock"></div>
+  <button class="btn ghost small hidden" id="logoutBtn">Выйти</button>
+</header>
+
+<!-- вход -->
+<div class="card solo" id="loginCard">
+  <h2>Вход для управляющего</h2>
+  <div class="row"><div style="flex:1"><label>Пароль</label><input type="password" id="pwd" autofocus></div></div>
+  <button class="btn" id="loginBtn">Войти</button>
+  <div class="msg" id="loginMsg"></div>
+</div>
+
+<div id="app" class="hidden">
+  <nav>
+    <button data-tab="tabel" class="active">Табель</button>
+    <button data-tab="log">Все отметки</button>
+    <button data-tab="emps">Сотрудники</button>
+    <button data-tab="settings">Настройки</button>
+  </nav>
+  <main>
+    <!-- фильтр (общий для табеля и отметок) -->
+    <div id="tab-tabel" class="card">
+      <div class="row">
+        <div><label>С</label><input type="date" id="from"></div>
+        <div><label>По</label><input type="date" id="to"></div>
+        <div><label>Сотрудник</label><select id="fEmp"><option value="">Все</option></select></div>
+        <button class="btn" id="reload">Показать</button>
+        <button class="btn ghost" id="csv">Скачать CSV (Excel)</button>
+      </div>
+      <h2>Сейчас на смене</h2>
+      <div class="now" id="nowOn"><span class="muted">—</span></div>
+      <h2>Итого часов</h2>
+      <div class="scroll"><table id="totals"></table></div>
+      <h2>Смены по дням</h2>
+      <div class="scroll"><table id="shifts"></table></div>
+    </div>
+
+    <div id="tab-log" class="card hidden">
+      <p class="muted">Период и сотрудник — как на вкладке «Табель».</p>
+      <div class="scroll"><table id="log"></table></div>
+    </div>
+
+    <div id="tab-emps" class="card hidden">
+      <h2>Добавить сотрудника</h2>
+      <div class="row">
+        <div><label>Имя</label><input id="newName" placeholder="Например, Азиз (официант)"></div>
+        <div><label>PIN (4–8 цифр)</label><input id="newPin" inputmode="numeric" maxlength="8"></div>
+        <button class="btn" id="addEmp">Добавить</button>
+      </div>
+      <div class="msg" id="empMsg"></div>
+      <h2>Список</h2>
+      <table id="emps"></table>
+    </div>
+
+    <div id="tab-settings" class="card hidden">
+      <h2>Ресторан</h2>
+      <div class="row"><div style="flex:1;min-width:240px"><label>Название</label><input id="sName"></div></div>
+      <h2>Геозона (где разрешено отмечаться)</h2>
+      <p class="muted">Укажите координаты ресторана. Проще всего — откройте эту страницу на телефоне, находясь в ресторане, и нажмите «Взять моё местоположение».</p>
+      <div class="row">
+        <div><label>Широта</label><input id="sLat" placeholder="39.654"></div>
+        <div><label>Долгота</label><input id="sLon" placeholder="66.959"></div>
+        <div><label>Радиус, м</label><input id="sRad" type="number" min="10" style="width:100px"></div>
+        <button class="btn ghost" id="here">📍 Взять моё местоположение</button>
+      </div>
+      <div class="row"><label style="font-size:14px;color:var(--ink)"><input type="checkbox" id="sStrict"> Не принимать отметки вне радиуса (иначе отметка сохранится с пометкой «вне зоны»)</label></div>
+      <h2>Пароль управляющего</h2>
+      <div class="row"><div><label>Новый пароль (мин. 6 символов)</label><input type="password" id="sPwd"></div></div>
+      <button class="btn" id="saveSettings">Сохранить</button>
+      <div class="msg" id="setMsg"></div>
+    </div>
+  </main>
+</div>
+
+<script src="config.js"></script>
+<script>
+const TZ = 'Asia/Samarkand';
+const $ = id => document.getElementById(id);
+let PASS = '';
+try { PASS = sessionStorage.getItem('adminPass') || ''; } catch (e) {}
+let employees = [], records = [];
+
+const fTime = new Intl.DateTimeFormat('ru-RU', { timeZone: TZ, weekday:'short', day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false });
+setInterval(() => $('clock').textContent = 'Самарканд: ' + fTime.format(new Date()), 1000);
+
+function todaySmk(shiftDays = 0) {
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year:'numeric', month:'2-digit', day:'2-digit' }).formatToParts(new Date(Date.now() + shiftDays * 864e5)).map(x => [x.type, x.value]));
+  return `${p.year}-${p.month}-${p.day}`;
+}
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
+const dmy = d => d.split('-').reverse().join('.');
+const hm = ms => { const m = Math.round(ms / 60000); return `${Math.floor(m / 60)} ч ${String(m % 60).padStart(2, '0')} мин`; };
+
+async function api(action, body) {
+  try { return await callApi(action, Object.assign({ password: PASS }, body || {})); }
+  catch (e) { if (e.code === 401) logout(); throw e; }
+}
+
+// ---- вход ----
+async function tryLogin() {
+  try {
+    await api('admin_login');
+    try { sessionStorage.setItem('adminPass', PASS); } catch (e) {}
+    $('loginCard').classList.add('hidden'); $('app').classList.remove('hidden'); $('logoutBtn').classList.remove('hidden');
+    init();
+  } catch (e) { $('loginMsg').className = 'msg err'; $('loginMsg').textContent = e.message || 'Неверный пароль'; }
+}
+$('loginBtn').onclick = () => { PASS = $('pwd').value; tryLogin(); };
+$('pwd').onkeydown = e => { if (e.key === 'Enter') $('loginBtn').click(); };
+function logout() { PASS = ''; try { sessionStorage.removeItem('adminPass'); } catch (e) {} $('app').classList.add('hidden'); $('loginCard').classList.remove('hidden'); $('logoutBtn').classList.add('hidden'); }
+$('logoutBtn').onclick = logout;
+if (PASS) tryLogin();
+
+// ---- вкладки ----
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('nav button').forEach(x => x.classList.toggle('active', x === b));
+  ['tabel', 'log', 'emps', 'settings'].forEach(t => $('tab-' + t).classList.toggle('hidden', t !== b.dataset.tab));
+});
+
+async function init() {
+  $('from').value = todaySmk(-6); $('to').value = todaySmk(0);
+  await loadEmployees(); await loadRecords(); await loadSettings();
+}
+
+// ---- табель ----
+async function loadRecords() {
+  records = await api('admin_records', { from: $('from').value, to: $('to').value, employeeId: $('fEmp').value || undefined });
+  renderTabel(); renderLog();
+}
+$('reload').onclick = loadRecords;
+$('csv').onclick = () => {
+  const q = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const rows = [['Дата (Самарканд)', 'Время (Самарканд)', 'Сотрудник', 'Отметка', 'Широта', 'Долгота', 'Точность, м', 'Расстояние до ресторана, м', 'В зоне', 'Карта'],
+    ...[...records].sort((a, b) => a.ts - b.ts).map(r => [r.date, r.time, r.name, r.type === 'in' ? 'Приход' : 'Уход', r.lat, r.lon, r.accuracy, r.distance,
+      r.inside == null ? '' : (r.inside ? 'да' : 'нет'), `https://maps.google.com/?q=${r.lat},${r.lon}`])];
+  const blob = new Blob(['\uFEFF' + rows.map(r => r.map(q).join(';')).join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = `tabel_${$('from').value}_${$('to').value}.csv`; a.click();
+};
+
+function buildShifts() {
+  const byEmp = {};
+  [...records].sort((a, b) => a.ts - b.ts).forEach(r => (byEmp[r.employeeId] ||= []).push(r));
+  const shifts = [];
+  for (const list of Object.values(byEmp)) {
+    let open = null;
+    for (const r of list) {
+      if (r.type === 'in') { if (open) shifts.push({ in: open, out: null }); open = r; }
+      else if (open) { shifts.push({ in: open, out: r }); open = null; }
+      else shifts.push({ in: null, out: r });
+    }
+    if (open) shifts.push({ in: open, out: null, current: true });
+  }
+  return shifts.sort((a, b) => (b.in || b.out).ts - (a.in || a.out).ts);
+}
+
+function geoCell(r) {
+  if (!r) return '';
+  const zone = r.inside == null ? '' : r.inside ? ` <span class="tag okz">${r.distance} м</span>` : ` <span class="tag warn">вне зоны: ${r.distance} м</span>`;
+  return `<a href="https://maps.google.com/?q=${r.lat},${r.lon}" target="_blank">карта</a>${zone}`;
+}
+
+function renderTabel() {
+  const shifts = buildShifts();
+  const on = shifts.filter(s => s.current);
+  $('nowOn').innerHTML = on.length ? on.map(s => `<span>${esc(s.in.name)} — с ${s.in.time.slice(0, 5)}</span>`).join('') : '<span class="muted" style="background:none">никого</span>';
+
+  const tot = {};
+  shifts.forEach(s => {
+    const name = (s.in || s.out).name; tot[name] ||= { ms: 0, n: 0, open: 0, outside: 0 };
+    if (s.in && s.out) { tot[name].ms += s.out.ts - s.in.ts; tot[name].n++; }
+    else tot[name].open++;
+    if ((s.in && s.in.inside === false) || (s.out && s.out.inside === false)) tot[name].outside++;
+  });
+  const names = Object.keys(tot).sort();
+  $('totals').innerHTML = '<tr><th>Сотрудник</th><th>Смен</th><th>Отработано</th><th>Незакрытые</th><th>Отметки вне зоны</th></tr>' +
+    (names.length ? names.map(n => `<tr><td>${esc(n)}</td><td class="num">${tot[n].n}</td><td class="num"><b>${hm(tot[n].ms)}</b></td><td>${tot[n].open || ''}</td><td>${tot[n].outside ? `<span class="tag warn">${tot[n].outside}</span>` : ''}</td></tr>`).join('')
+      : '<tr><td colspan="5" class="muted">Нет отметок за период</td></tr>');
+
+  $('shifts').innerHTML = '<tr><th>Дата</th><th>Сотрудник</th><th>Приход</th><th>Где</th><th>Уход</th><th>Где</th><th>Длительность</th></tr>' +
+    shifts.map(s => {
+      const r = s.in || s.out;
+      const dur = s.in && s.out ? hm(s.out.ts - s.in.ts) : s.current ? '<span class="tag in">на смене</span>' : '<span class="tag warn">нет пары</span>';
+      return `<tr><td>${dmy(r.date)}</td><td>${esc(r.name)}</td><td class="num">${s.in ? s.in.time.slice(0, 5) : '—'}</td><td>${geoCell(s.in)}</td>
+        <td class="num">${s.out ? (s.out.date !== (s.in || s.out).date ? dmy(s.out.date) + ' ' : '') + s.out.time.slice(0, 5) : '—'}</td><td>${geoCell(s.out)}</td><td class="num">${dur}</td></tr>`;
+    }).join('');
+}
+
+function renderLog() {
+  $('log').innerHTML = '<tr><th>Дата</th><th>Время</th><th>Сотрудник</th><th>Отметка</th><th>Координаты</th><th>Точность</th><th>Геозона</th><th></th></tr>' +
+    [...records].sort((a, b) => b.ts - a.ts).map(r => `<tr><td>${dmy(r.date)}</td><td class="num">${r.time}</td><td>${esc(r.name)}</td>
+      <td><span class="tag ${r.type}">${r.type === 'in' ? 'Приход' : 'Уход'}</span></td>
+      <td class="num"><a href="https://maps.google.com/?q=${r.lat},${r.lon}" target="_blank">${r.lat}, ${r.lon}</a></td>
+      <td class="num">±${r.accuracy ?? '?'} м</td>
+      <td>${r.inside == null ? '<span class="muted">не задана</span>' : r.inside ? `<span class="tag okz">${r.distance} м</span>` : `<span class="tag warn">вне: ${r.distance} м</span>`}</td>
+      <td><button class="btn ghost small" onclick="delRec('${r.id}')">Удалить</button></td></tr>`).join('');
+}
+window.delRec = async id => { if (!confirm('Удалить эту отметку?')) return; await api('admin_delete_record', { id }); loadRecords(); };
+
+// ---- сотрудники ----
+async function loadEmployees() {
+  employees = await api('admin_employees');
+  $('fEmp').innerHTML = '<option value="">Все</option>' + employees.map(e => `<option value="${e.id}">${esc(e.name)}</option>`).join('');
+  $('emps').innerHTML = '<tr><th>Имя</th><th>Статус</th><th></th></tr>' + (employees.length ? employees.map(e => `<tr>
+    <td>${esc(e.name)}</td><td>${e.active ? 'работает' : '<span class="muted">отключён</span>'}</td>
+    <td style="text-align:right;white-space:nowrap"><button class="btn ghost small" onclick="renameEmp('${e.id}')">Имя</button>
+    <button class="btn ghost small" onclick="pinEmp('${e.id}')">Сменить PIN</button>
+    <button class="btn ghost small" onclick="toggleEmp('${e.id}', ${!e.active})">${e.active ? 'Отключить' : 'Включить'}</button></td></tr>`).join('')
+    : '<tr><td colspan="3" class="muted">Пока никого нет</td></tr>');
+}
+function empMsg(t, ok) { $('empMsg').className = 'msg ' + (ok ? 'ok' : 'err'); $('empMsg').textContent = t; }
+$('addEmp').onclick = async () => {
+  try { await api('admin_save_employee', { name: $('newName').value, pin: $('newPin').value.trim() });
+    empMsg('Сотрудник добавлен. Сообщите ему PIN.', true); $('newName').value = ''; $('newPin').value = ''; loadEmployees(); }
+  catch (e) { empMsg(e.message); }
+};
+window.renameEmp = async id => { const n = prompt('Новое имя:'); if (!n) return; try { await api('admin_save_employee', { id, name: n }); loadEmployees(); } catch (e) { empMsg(e.message); } };
+window.pinEmp = async id => { const p = prompt('Новый PIN (4–8 цифр):'); if (!p) return; try { await api('admin_save_employee', { id, pin: p.trim() }); empMsg('PIN изменён', true); } catch (e) { empMsg(e.message); } };
+window.toggleEmp = async (id, active) => { await api('admin_save_employee', { id, active }); loadEmployees(); };
+
+// ---- настройки ----
+async function loadSettings() {
+  const s = await api('admin_settings');
+  $('sName').value = s.restaurantName; $('sLat').value = s.lat ?? ''; $('sLon').value = s.lon ?? '';
+  $('sRad').value = s.radius; $('sStrict').checked = !!s.strict;
+  $('title').textContent = s.restaurantName + ' — табель';
+}
+function setMsg(t, ok) { $('setMsg').className = 'msg ' + (ok ? 'ok' : 'err'); $('setMsg').textContent = t; }
+$('here').onclick = () => {
+  if (!navigator.geolocation) return setMsg('Геолокация недоступна');
+  setMsg('Определяем…', true);
+  navigator.geolocation.getCurrentPosition(p => {
+    $('sLat').value = p.coords.latitude.toFixed(6); $('sLon').value = p.coords.longitude.toFixed(6);
+    setMsg(`Готово (точность ±${Math.round(p.coords.accuracy)} м). Не забудьте нажать «Сохранить».`, true);
+  }, e => setMsg('Не удалось: ' + e.message), { enableHighAccuracy: true, timeout: 20000 });
+};
+$('saveSettings').onclick = async () => {
+  try {
+    await api('admin_save_settings', { restaurantName: $('sName').value, lat: $('sLat').value.trim(), lon: $('sLon').value.trim(),
+      radius: $('sRad').value, strict: $('sStrict').checked, newPassword: $('sPwd').value || undefined });
+    if ($('sPwd').value) { PASS = $('sPwd').value; try { sessionStorage.setItem('adminPass', PASS); } catch (e) {} $('sPwd').value = ''; }
+    setMsg('Сохранено', true); loadSettings();
+  } catch (e) { setMsg(e.message); }
+};
+</script>
+</body>
+</html>
